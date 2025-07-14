@@ -1,7 +1,6 @@
 using ITensors
 using ITensorMPS
 using Plots
-using Random
 
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
@@ -55,14 +54,14 @@ function magnetization_profile(psi, sites)
     return magnetization
 end
 
-# FIXED: Find excited state using different initial conditions
-function find_excited_state(H, sites; maxdim=100, nsweeps=20)
-    N = length(sites)
-    nup = div(N, 2) + 1  # One more up spin than ground state
-    
+# FIXED: Find excited state using different initial conditions and energy targeting
+function find_excited_state(H, sites, ground_energy; maxdim=100, nsweeps=20)
     # Try multiple random initial states to find excited state
     best_energy = Inf
     best_psi = nothing
+    
+    N = length(sites)
+    nup = div(N, 2) + 1  # One more up spin than ground state
     
     for trial in 1:5
         # Random initial state with correct Sz
@@ -82,7 +81,7 @@ function find_excited_state(H, sites; maxdim=100, nsweeps=20)
 end
 
 # Main function to plot magnetization comparison
-function plot_all()
+function plot_magnetization_comparison()
     L = 10
     H, sites = heisenberg_mpo(L)
     
@@ -93,7 +92,7 @@ function plot_all()
     
     # Excited state (Sz = +1/2)
     println("Finding excited state...")
-    E_ex, psi_ex = find_excited_state(H, sites; maxdim=100, nsweeps=20)
+    E_ex, psi_ex = find_excited_state(H, sites, E_gs; maxdim=100, nsweeps=20)
     
     # Calculate magnetization profiles
     mag_gs = magnetization_profile(psi_gs, sites)
@@ -106,18 +105,10 @@ function plot_all()
     println("Ground state total Sz: $(sum(mag_gs))")
     println("Excited state total Sz: $(sum(mag_ex))")
     
-    # Create plot with proper scaling
-    plt5 = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
-        ylabel="⟨Sz⟩", title="5. Magnetization: Ground vs Excited", 
+    # Create plot
+    plt = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
+        ylabel="⟨Sz⟩", title="Magnetization: Ground vs Excited State", 
         marker=:o, linewidth=2, markersize=6)
-    plot!(plt5, 1:L, mag_ex, label="Excited State", marker=:square, 
-        linewidth=2, markersize=6)
-    
-    # Set y-axis limits to show meaningful scale
-    ylims!(plt5, -0.1, 0.6)
-    
-    return plt5
-end
+end 
 
-# Execute the plot
-plot_all()
+plot_magnetization_comparison()
