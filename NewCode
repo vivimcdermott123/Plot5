@@ -93,15 +93,14 @@ end
 function plot_magnetization_comparison()
     L = 10
     H, sites = heisenberg_mpo(L)
-    
     # Ground state (Sz = 0)
-    println("Finding ground state...")
-    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
-    E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
+ #   println("Finding ground state...")
+#    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
+#    E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
     
     # Excited state (Sz = +1/2)
-    println("Finding excited state...")
-    E_ex, psi_ex = find_excited_state(H, sites, E_gs; maxdim=100, nsweeps=20)
+ #   println("Finding excited state...")
+#    E_ex, psi_ex = find_excited_state(H, sites, E_gs; maxdim=100, nsweeps=20)
     
     # Calculate magnetization profiles
     mag_gs = magnetization_profile(psi_gs, sites)
