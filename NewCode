@@ -107,13 +107,6 @@ function plot_magnetization_comparison()
     mag_gs = magnetization_profile(psi_gs, sites)
     mag_ex = magnetization_profile(psi_ex, sites)
     
-    # Print some diagnostics
-    println("Ground state energy: $E_gs")
-    println("Excited state energy: $E_ex")
-    println("Energy gap: $(E_ex - E_gs)")
-    println("Ground state total Sz: $(sum(mag_gs))")
-    println("Excited state total Sz: $(sum(mag_ex))")
-    
     # Create plot
     plt = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
         ylabel="⟨Sz⟩", title="Magnetization: Ground vs Excited State", 
