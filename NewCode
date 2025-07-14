@@ -1,44 +1,150 @@
 using ITensors
 using ITensorMPS
 using Plots
+using LinearAlgebra
 
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
     sites = siteinds(S, N)
     os = OpSum()
     for i in 1:N-1
-        os += 0.5J, "S+", i, "S-", i+1
-        os += 0.5J, "S-", i, "S+", i+1
+        os += 0.5*J, "S+", i, "S-", i+1
+        os += 0.5*J, "S-", i, "S+", i+1
         os += J, "Sz", i, "Sz", i+1
     end
     return MPO(os, sites), sites
 end
 
-# Run DMRG given an initial product state
-function run_dmrg(H, psi0; maxdim=100, nsweeps=20, cutoff=1e-10)
+# FIXED: Proper excited state DMRG calculation
+function calculate_gap_dmrg_fixed(L; J=1.0, maxdim=200, nsweeps=10)
+    println("Calculating gap for L=$L using FIXED DMRG method...")
+    H, sites = heisenberg_mpo(L; J=J)
+    
+    # Set up sweeps
     sweeps = Sweeps(nsweeps)
     setmaxdim!(sweeps, maxdim)
-    setcutoff!(sweeps, cutoff)
-    energy, psi = dmrg(H, psi0, sweeps)
-    return energy, psi
-end
-
-# Initialize random state in the correct Sz sector
-function random_state_fixed_sz(sites, nup)
-    N = length(sites)
-    state_array = fill("Dn", N)
-    up_positions = randperm(N)[1:nup]
-    for pos in up_positions
-        state_array[pos] = "Up"
+    setcutoff!(sweeps, 1e-10)
+    setnoise!(sweeps, 1e-10)  # Add noise for better convergence
+    
+    # FIX 1: Find ground state without Sz constraint
+    println("Finding ground state...")
+    psi0 = randomMPS(sites, linkdims=10)
+    E0, psi0 = dmrg(H, psi0, sweeps; outputlevel=0)
+    println("Ground state energy: $E0")
+    
+    # FIX 2: Find first excited state orthogonal to ground state
+    println("Finding first excited state...")
+    psi1 = randomMPS(sites, linkdims=10)
+    
+    # Use the proper excited state DMRG method
+    # This finds the lowest energy state orthogonal to psi0
+    E1, psi1 = dmrg(H, [psi0], psi1, sweeps; outputlevel=0, weight=20.0)
+    
+    # Verify orthogonality
+    overlap = abs(inner(psi0, psi1))
+    println("First excited state energy: $E1")
+    println("Overlap between ground and excited state: $overlap")
+    
+    # FIX 3: More robust excited state search if needed
+    if overlap > 0.1  # States are not sufficiently orthogonal
+        println("States not orthogonal enough, trying alternative method...")
+        
+        # Try different initial states for excited state
+        best_E1 = Inf
+        best_psi1 = psi1
+        
+        for trial in 1:3
+            println("  Trial $trial...")
+            psi_trial = randomMPS(sites, linkdims=10)
+            
+            # Use different random seed by applying random gates
+            for i in 1:min(5, L-1)
+                idx = rand(1:L-1)
+                gate = randomITensor(sites[idx], sites[idx+1], sites[idx]', sites[idx+1]')
+                psi_trial = apply(gate, psi_trial; cutoff=1e-10)
+                normalize!(psi_trial)
+            end
+            
+            E_trial, psi_trial = dmrg(H, [psi0], psi_trial, sweeps; outputlevel=0, weight=20.0)
+            overlap_trial = abs(inner(psi0, psi_trial))
+            
+            println("    Trial $trial: E = $E_trial, overlap = $overlap_trial")
+            
+            if overlap_trial < 0.1 && E_trial < best_E1
+                best_E1 = E_trial
+                best_psi1 = psi_trial
+            end
+        end
+        
+        if best_E1 < Inf
+            E1 = best_E1
+            psi1 = best_psi1
+            println("Best excited state energy: $E1")
+        else
+            println("Warning: Could not find good excited state")
+            return 0.0
+        end
     end
-    return MPS(sites, state_array)
-end
+
+
+# FIX 5: Alternative method using different quantum numbers
+function calculate_gap_dmrg_sectors(L; J=1.0, maxdim=200, =10)
+    println("Calculating gap for L=$L using quantum number sectors...")
+    H, sites = heisenberg_mpo(L; J=J)
+    
+    sweeps = Sweeps()
+    setmaxdim!(sweeps, maxdim)
+    setcutoff!(sweeps, 1e-10)
+    setnoise!(sweeps, 1e-10)
+    
+    # Find ground state (should be in Sz = 0 sector for even L)
+    psi0 = randomMPS(sites, linkdims=10)
+    E0, psi0 = dmrg(H, psi0, sweeps; outputlevel=0)
+    
+    # Calculate total Sz of ground state
+    total_sz = 0.0
+    for i in 1:L
+        sz_op = op("Sz", sites[i])
+        total_sz += inner(psi0, apply(sz_op, psi0; cutoff=1e-12))
+    end
+    println("Ground state: E0 = $E0, total Sz = $total_sz")
+    
+    # Try to find excited state in different Sz sectors
+    excited_energies = Float64[]
+    
+    # Create initial states with different Sz values
+    for sz_target in [-1, 0, 1]
+        if sz_target == 0
+            continue  # Skip Sz=0 as ground state is likely there
+        end
+        
+        # Create initial state with desired Sz
+        nup = div(L, 2) + sz_target
+        if nup >= 0 && nup <= L
+            println("Trying Sz = $sz_target sector (nup = $nup)...")
+            
+            # Create product state with correct Sz
+            state = [i <= nup ? "Up" : "Dn" for i in 1:L]
+            psi_trial = MPS(sites, state)
+            
+            E_trial, psi_trial = dmrg(H, psi_trial, sweeps; outputlevel=0)
+            
+            # Check if this is different from ground state
+            overlap = abs(inner(psi0, psi_trial))
+            println("  Sz = $sz_target: E = $E_trial, overlap with GS = $overlap")
+            
+            if overlap < 0.1
+                push!(excited_energies, E_trial)
+            end
+        end
+    end
+
 
 # FIXED: Proper magnetization profile calculation
 function magnetization_profile(psi, sites)
     N = length(sites)
     magnetization = zeros(Float64, N)
-
+    
     for i in 1:N
         # Calculate ⟨Sz⟩ at site i
         orthogonalize!(psi, i)
@@ -48,31 +154,6 @@ function magnetization_profile(psi, sites)
     return magnetization
 end
 
-# FIXED: Find excited state using different initial conditions
-function find_excited_state(H, sites; maxdim=100, nsweeps=20)
-    N = length(sites)
-
-    # Try multiple random initial states to find excited state
-    best_energy = Inf
-    best_psi = nothing
-    
-    for trial in 1:5
-        # Random initial state with correct Sz
-        psi0 = random_state_fixed_sz(sites, nup)
-        
-        # Run DMRG
-        energy, psi = run_dmrg(H, psi0; maxdim=maxdim, nsweeps=nsweeps)
-        
-        # Keep the lowest energy state found (which should be the excited state)
-        if energy < best_energy
-            best_energy = energy
-            best_psi = psi
-        end
-    end
-    
-    return best_energy, best_psi
-end
-
 # Main function to plot magnetization comparison
 function plot_all()
     L = 10
@@ -80,23 +161,16 @@ function plot_all()
     
     # Ground state (Sz = 0)
     println("Finding ground state...")
-    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
-    E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
+    psi0 = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
+    E0, psi0 = run_dmrg(H, psi0_gs; maxdim=100, =20)
     
     # Excited state (Sz = +1/2)
     println("Finding excited state...")
-    E_ex, psi_ex = find_excited_state(H, sites; maxdim=100, nsweeps=20)
+    E1, psi1 = find_excited_state(H, sites; maxdim=100, nsweeps=10)
     
     # Calculate magnetization profiles
-    mag_gs = magnetization_profile(psi_gs, sites)
-    mag_ex = magnetization_profile(psi_ex, sites)
-    
-    # Print some diagnostics
-    println("Ground state energy: $E_gs")
-    println("Excited state energy: $E_ex")
-    println("Energy gap: $(E_ex - E_gs)")
-    println("Ground state total Sz: $(sum(mag_gs))")
-    println("Excited state total Sz: $(sum(mag_ex))")
+    mag_gs = magnetization_profile(psi0, sites)
+    mag_ex = magnetization_profile(psi1, sites)
     
     # Create plot with proper scaling
     plt5 = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
