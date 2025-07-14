@@ -1,124 +1,164 @@
-using ITensors
-using ITensorMPS
-using Plots
+# Import necessary packages
+using ITensors      # Core ITensor library for tensor calculations
+using ITensorMPS   # Provides functions specific to Matrix Product States (MPS)
+using Plots        # Plotting library to visualize data
 
-# Construct the Heisenberg Hamiltonian as an MPO
+# Construct the Heisenberg Hamiltonian as a Matrix Product Operator (MPO)
+# for a chain of spins interacting through spin-exchange interaction.
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
+    # N: Number of spins (length of the spin chain)
+    # J: Interaction strength (exchange constant)
+    # S: Spin representation, here spin-1/2
+
+    # Create a list of site indices representing spins on each site
     sites = siteinds(S, N)
+
+    # Initialize an operator sum to define the Hamiltonian
     os = OpSum()
+
+    # Construct the Heisenberg interaction term by term
     for i in 1:N-1
-        os += 0.5J, "S+", i, "S-", i+1
-        os += 0.5J, "S-", i, "S+", i+1
+        # Add spin raising/lowering (flip-flop) terms between adjacent spins
+        os += 0.5J, "S+", i, "S-", i+1   # S_i^+ S_{i+1}^- term
+        os += 0.5J, "S-", i, "S+", i+1   # S_i^- S_{i+1}^+ term
+
+        # Add the Sz-Sz interaction (spin alignment) between adjacent spins
         os += J, "Sz", i, "Sz", i+1
     end
+
+    # Convert operator sum into a Matrix Product Operator
     return MPO(os, sites), sites
 end
 
-# Run DMRG given an initial product state
+# Run the Density Matrix Renormalization Group (DMRG) algorithm
+# to compute the lowest-energy state (ground state) of the Hamiltonian
 function run_dmrg(H, psi0; maxdim=100, nsweeps=20, cutoff=1e-10)
+    # H: Hamiltonian (as MPO)
+    # psi0: Initial guess for the state (an MPS)
+    # maxdim: Maximum allowed MPS bond dimension (controls accuracy)
+    # nsweeps: Number of iterations (sweeps) the algorithm performs
+    # cutoff: Numerical precision threshold
+
+    # Set up DMRG sweeps with specified parameters
     sweeps = Sweeps(nsweeps)
-    setmaxdim!(sweeps, maxdim)
-    setcutoff!(sweeps, cutoff)
+    setmaxdim!(sweeps, maxdim)      # Sets how large tensors can grow
+    setcutoff!(sweeps, cutoff)      # Threshold for ignoring small terms
+
+    # Run the DMRG algorithm to find ground state and energy
     energy, psi = dmrg(H, psi0, sweeps)
     return energy, psi
 end
 
-# Initialize state with fixed number of up spins (total Sz)
+# Create a simple initial state with a fixed number of spins pointing up
 function initial_state_fixed_sz(sites, nup)
+    # sites: Spin sites
+    # nup: Number of spins pointing up (total Sz)
+
     N = length(sites)
+    # Set spins to "Up" for first 'nup' sites, "Dn" for remaining
     return [i <= nup ? "Up" : "Dn" for i in 1:N]
 end
 
-# Initialize random state in the correct Sz sector
+# Generate a randomized initial state with exactly nup spins pointing up
 function random_state_fixed_sz(sites, nup)
     N = length(sites)
-    state_array = fill("Dn", N)
-    up_positions = randperm(N)[1:nup]
+    state_array = fill("Dn", N)  # Start with all spins down
+    up_positions = randperm(N)[1:nup]  # Randomly select positions for spins up
+
+    # Set randomly selected spins to "Up"
     for pos in up_positions
         state_array[pos] = "Up"
     end
+
+    # Convert the spin configuration into an MPS state
     return MPS(sites, state_array)
 end
 
+# Calculate the magnetization ⟨Sz⟩ at each spin site for a given state ψ
 function magnetization_profile(psi, sites)
     N = length(sites)
     sz = zeros(Float64, N)
+
+    # Loop through each spin site
     for i in 1:N
-        orthogonalize!(psi, i)
-        # Prime the site index on psi[i] so contraction works
+        orthogonalize!(psi, i)  # Ensure psi[i] is numerically stable
+
+        # Extract the tensor representing the state at site i
         psi_i = psi[i]
+
+        # Obtain the spin operator Sz acting on site i
         op_Sz = op(sites, "Sz", i)
-        # Prime site indices for correct contraction
+
+        # Calculate expectation value ⟨ψ|Sz|ψ⟩ at site i
         val = scalar(dag(prime(psi_i, "Site")) * op_Sz * psi_i)
-        sz[i] = real(val)
+        sz[i] = real(val)  # Store the real part (should be real physically)
     end
     return sz
 end
 
-
-# FIXED: Find excited state using different initial conditions
+# Find an excited state by running DMRG multiple times with different random initial states
 function find_excited_state(H, sites; maxdim=100, nsweeps=20)
     N = length(sites)
-    nup = div(N, 2) + 1  # One more up spin than ground state
-    
-    # Try multiple random initial states to find excited state
+    nup = div(N, 2) + 1  # Slightly higher magnetization than ground state
+
     best_energy = Inf
     best_psi = nothing
-    
-    for trial in 1:5
-        # Random initial state with correct Sz
-        psi0 = random_state_fixed_sz(sites, nup)
-        
+
+    # Try multiple initial random guesses to reliably find the excited state
+    for trial in 1:100
+        # Random initial state with nup +1 spins up
+        psi0 = random_state_fixed_sz(sites, nup+1)
+
         # Run DMRG
         energy, psi = run_dmrg(H, psi0; maxdim=maxdim, nsweeps=nsweeps)
-        
-        # Keep the lowest energy state found (which should be the excited state)
+
+        # Record if this trial yields a lower energy excited state
         if energy < best_energy
             best_energy = energy
             best_psi = psi
         end
     end
-    
+
     return best_energy, best_psi
 end
 
-# Main function to plot magnetization comparison
+# Main function to perform calculations and generate plots
 function plot_all()
-    L = 10
+    L = 10  # Chain length
     H, sites = heisenberg_mpo(L)
-    
-    # Ground state (Sz = 0)
+
+    # Find ground state (lowest energy state, Sz = 0)
     println("Finding ground state...")
     psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
     E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
-    
-    # Excited state (Sz = +1/2)
+
+    # Find excited state (next-lowest energy, higher magnetization)
     println("Finding excited state...")
     E_ex, psi_ex = find_excited_state(H, sites; maxdim=100, nsweeps=20)
-    
-    # Calculate magnetization profiles
+
+    # Compute magnetization profiles
     mag_gs = magnetization_profile(psi_gs, sites)
     mag_ex = magnetization_profile(psi_ex, sites)
-    
-    # Print some diagnostics
+
+    # Output energies and total magnetization
     println("Ground state energy: $E_gs")
     println("Excited state energy: $E_ex")
     println("Energy gap: $(E_ex - E_gs)")
     println("Ground state total Sz: $(sum(mag_gs))")
     println("Excited state total Sz: $(sum(mag_ex))")
-    
-    # Create plot with proper scaling
+
+    # Plot the magnetization profiles
     plt5 = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
-        ylabel="⟨Sz⟩", title="5. Magnetization: Ground vs Excited", 
+        ylabel="⟨Sz⟩", title="Magnetization: Ground vs Excited", 
         marker=:o, linewidth=2, markersize=6)
     plot!(plt5, 1:L, mag_ex, label="Excited State", marker=:square, 
         linewidth=2, markersize=6)
-    
-    # Set y-axis limits to show meaningful scale
-    ylims!(plt5, -0.1, 0.6)
-    
+
+    # Set vertical limits for better visualization
+    ylims!(plt5, -0.1, 0.1)
+
     return plt5
 end
 
-# Execute the plot
+# Execute main plotting function
 plot_all()
