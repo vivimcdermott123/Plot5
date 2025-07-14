@@ -1,6 +1,4 @@
-using ITensors
-using ITensorMPS
-using Plots
+using ITensors, ITensorMPS, Plots, LinearAlgebra, StaticArray
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
     sites = siteinds(S, N)
