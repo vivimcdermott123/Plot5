@@ -16,7 +16,7 @@ function heisenberg_mpo(N; J=1.0, S="S=1/2")
 end
 
 # Run DMRG given an initial product state
-function run_dmrg(H, psi0; maxdim=100, nsweeps=20, cutoff=1e-10)
+function run_dmrg(H, psi0; maxdim=100, nsweeps=10, cutoff=1e-10)
     sweeps = Sweeps(nsweeps)
     setmaxdim!(sweeps, maxdim)
     setcutoff!(sweeps, cutoff)
@@ -56,7 +56,7 @@ function magnetization_profile(psi, sites)
 end
 
 # FIXED: Find excited state using excited state DMRG
-function find_excited_state(H, sites, ground_state; maxdim=100, nsweeps=20)
+function find_excited_state(H, sites, ground_state; maxdim=100, nsweeps=10)
     N = length(sites)
     nup = div(N, 2)  # Same Sz sector as ground state
     
