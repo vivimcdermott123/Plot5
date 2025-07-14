@@ -1,7 +1,6 @@
 using ITensors
 using ITensorMPS
 using Plots
-using Random
 
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
@@ -16,7 +15,7 @@ function heisenberg_mpo(N; J=1.0, S="S=1/2")
 end
 
 # Run DMRG given an initial product state
-function run_dmrg(H, psi0; maxdim=100, nsweeps=10, cutoff=1e-10)
+function run_dmrg(H, psi0; maxdim=100, nsweeps=20, cutoff=1e-10)
     sweeps = Sweeps(nsweeps)
     setmaxdim!(sweeps, maxdim)
     setcutoff!(sweeps, cutoff)
@@ -55,56 +54,56 @@ function magnetization_profile(psi, sites)
     return magnetization
 end
 
-# FIXED: Find excited state using excited state DMRG
-function find_excited_state(H, sites, ground_state; maxdim=100, nsweeps=10)
-    N = length(sites)
-    nup = div(N, 2)  # Same Sz sector as ground state
+# FIXED: Find excited state using different initial conditions and energy targeting
+function find_excited_state(H, sites, ground_energy; maxdim=100, nsweeps=20)
+    # Try multiple random initial states to find excited state
+    best_energy = Inf
+    best_psi = nothing
     
-    # Create initial state - try a different configuration in same Sz sector
-    # Use antiferromagnetic-like initial state
-    initial_config = [(i % 2 == 1) ? "Up" : "Dn" for i in 1:N]
-    # Adjust to get correct number of up spins
-    up_count = sum(initial_config .== "Up")
-    if up_count > nup
-        # Convert some ups to downs
-        for i in 1:N
-            if initial_config[i] == "Up" && sum(initial_config[1:i] .== "Up") > nup
-                initial_config[i] = "Dn"
-            end
-        end
-    elseif up_count < nup
-        # Convert some downs to ups
-        for i in 1:N
-            if initial_config[i] == "Dn" && sum(initial_config[1:i] .== "Up") < nup
-                initial_config[i] = "Up"
-            end
+    N = length(sites)
+    nup = div(N, 2) + 1  # One more up spin than ground state
+    
+    for trial in 1:5
+        # Random initial state with correct Sz
+        psi0 = random_state_fixed_sz(sites, nup)
+        
+        # Run DMRG
+        energy, psi = run_dmrg(H, psi0; maxdim=maxdim, nsweeps=nsweeps)
+        
+        # Keep the lowest energy state found (which should be the excited state)
+        if energy < best_energy
+            best_energy = energy
+            best_psi = psi
         end
     end
     
-    psi0 = MPS(sites, initial_config)
-    
-    # Use excited state DMRG with the ground state as a penalty
-    energy, psi = dmrg(H, [ground_state], psi0; nsweeps=nsweeps, maxdim=maxdim, weight=20.0)
-    
-    return energy, psi
+    return best_energy, best_psi
 end
 
 # Main function to plot magnetization comparison
 function plot_magnetization_comparison()
     L = 10
     H, sites = heisenberg_mpo(L)
+    
     # Ground state (Sz = 0)
- #   println("Finding ground state...")
-#    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
-#    E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
+    println("Finding ground state...")
+    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
+    E_gs, psi_gs = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
     
     # Excited state (Sz = +1/2)
- #   println("Finding excited state...")
-#    E_ex, psi_ex = find_excited_state(H, sites, E_gs; maxdim=100, nsweeps=20)
+    println("Finding excited state...")
+    E_ex, psi_ex = find_excited_state(H, sites, E_gs; maxdim=100, nsweeps=20)
     
     # Calculate magnetization profiles
     mag_gs = magnetization_profile(psi_gs, sites)
     mag_ex = magnetization_profile(psi_ex, sites)
+    
+    # Print some diagnostics
+    println("Ground state energy: $E_gs")
+    println("Excited state energy: $E_ex")
+    println("Energy gap: $(E_ex - E_gs)")
+    println("Ground state total Sz: $(sum(mag_gs))")
+    println("Excited state total Sz: $(sum(mag_ex))")
     
     # Create plot
     plt = plot(1:L, mag_gs, label="Ground State", xlabel="Site",
