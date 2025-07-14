@@ -1,6 +1,8 @@
 using ITensors
 using ITensorMPS
 using Plots
+using Random
+
 
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
