@@ -1,7 +1,6 @@
 using ITensors
 using ITensorMPS
 using Plots
-using Random
 
 # Construct the Heisenberg Hamiltonian as an MPO
 function heisenberg_mpo(N; J=1.0, S="S=1/2")
@@ -24,12 +23,6 @@ function run_dmrg(H, psi0; maxdim=100, nsweeps=20, cutoff=1e-10)
     return energy, psi
 end
 
-# Initialize state with fixed number of up spins (total Sz)
-function initial_state_fixed_sz(sites, nup)
-    N = length(sites)
-    return [i <= nup ? "Up" : "Dn" for i in 1:N]
-end
-
 # Initialize random state in the correct Sz sector
 function random_state_fixed_sz(sites, nup)
     N = length(sites)
@@ -41,21 +34,24 @@ function random_state_fixed_sz(sites, nup)
     return MPS(sites, state_array)
 end
 
+# FIXED: Proper magnetization profile calculation
 function magnetization_profile(psi, sites)
     N = length(sites)
-    mag = zeros(Float64, N)
-    for i in 1:N
-        mag[i] = expect(psi, "Sz"; sites=sites, site_range=i)[1]
-    end
-    return mag
-end
+    magnetization = zeros(Float64, N)
 
+    for i in 1:N
+        # Calculate ⟨Sz⟩ at site i
+        orthogonalize!(psi, i)
+        magnetization[i] = real(scalar(dag(psi[i]) * op(sites, "Sz", i) * psi[i]))
+    end
+    
+    return magnetization
+end
 
 # FIXED: Find excited state using different initial conditions
 function find_excited_state(H, sites; maxdim=100, nsweeps=20)
     N = length(sites)
-    nup = div(N, 2) + 1  # One more up spin than ground state
-    
+
     # Try multiple random initial states to find excited state
     best_energy = Inf
     best_psi = nothing
