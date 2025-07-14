@@ -27,32 +27,6 @@ function initial_state_fixed_sz(sites, nup)
     return [i <= nup ? "Up" : "Dn" for i in 1:N]
 end
 
-# Calculate energy gap Δ(L)
-function calculate_gap_sz(L; J=1.0, maxdim=100)
-    H, sites = heisenberg_mpo(L; J=J)
-    psi0_gs = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
-    psi0_ex = MPS(sites, initial_state_fixed_sz(sites, div(L,2)+1))
-    E0, _ = run_dmrg(H, psi0_gs; maxdim=maxdim)
-    E1, _ = run_dmrg(H, psi0_ex; maxdim=maxdim)
-    return E1 - E0
-end
-
-# Proper calculation of full correlation matrix ⟨SzᵢSzⱼ⟩
-function correlation_profile(psi, sites, center)
-    corr_matrix = correlation_matrix(psi, "Sz", "Sz"; sites=sites, site_range=1:length(sites), ishermitian=true)
-    return corr_matrix[center, :]
-end
-
-# Compute entanglement entropy across a bond
-function entanglement_entropy(psi, b)
-    orthogonalize!(psi, b)
-    U, S, V = svd(psi[b], (linkind(psi, b-1),))
-    s = diag(S)
-    s = s[s .> 1e-12]
-    return -sum(s.^2 .* log.(s.^2))
-end
-#indicieissueabove?
-
 # Corrected magnetization profile calculation ⟨Sz⟩
 function magnetization_profile(psi, sites)
     return [real(expect(psi, "Sz"; sites=sites, site_range=i)[1]) for i in 1:length(sites)]
