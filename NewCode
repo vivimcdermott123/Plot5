@@ -88,7 +88,7 @@ function calculate_gap_dmrg_fixed(L; J=1.0, maxdim=200, nsweeps=10)
 
 
 # FIX 5: Alternative method using different quantum numbers
-function calculate_gap_dmrg_sectors(L; J=1.0, maxdim=200, =10)
+function calculate_gap_dmrg_sectors(L; J=1.0, maxdim=200,nsweeps=10)
     println("Calculating gap for L=$L using quantum number sectors...")
     H, sites = heisenberg_mpo(L; J=J)
     
