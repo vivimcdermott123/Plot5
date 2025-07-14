@@ -162,7 +162,7 @@ function plot_all()
     # Ground state (Sz = 0)
     println("Finding ground state...")
     psi0 = MPS(sites, initial_state_fixed_sz(sites, div(L,2)))
-    E0, psi0 = run_dmrg(H, psi0_gs; maxdim=100, =20)
+    E0, psi0 = run_dmrg(H, psi0_gs; maxdim=100, nsweeps=20)
     
     # Excited state (Sz = +1/2)
     println("Finding excited state...")
